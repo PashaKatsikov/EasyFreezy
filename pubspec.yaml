@@ -1,0 +1,36 @@
+name: easy_freezy
+description: Easy Freezy — simulated casino slots.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.5.3
+  webview_flutter: ^4.13.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/Easy_Freezy_additional_assets/
+    - assets/Easy_Freezy_gameplay_assets/
+  fonts:
+    - family: Russo
+      fonts:
+        - asset: assets/fonts/RussoOne-Regular.ttf
+    - family: Barlow
+      fonts:
+        - asset: assets/fonts/BarlowCondensed-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/BarlowCondensed-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/BarlowCondensed-Bold.ttf
+          weight: 700
