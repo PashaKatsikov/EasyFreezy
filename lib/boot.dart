@@ -42,7 +42,6 @@ class _BootViewState extends State<BootView> {
     await Future<void>.delayed(const Duration(milliseconds: 280));
     if (_fired || !mounted) return;
     _fired = true;
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     widget.onReady();
   }
 

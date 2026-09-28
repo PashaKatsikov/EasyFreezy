@@ -1,3 +1,5 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,39 +12,176 @@ import 'legal.dart';
 import 'lobby.dart';
 import 'look.dart';
 import 'machine.dart';
+import 'sleet/bars.dart';
+import 'sleet/bell.dart';
+import 'sleet/board.dart';
+import 'sleet/dial.dart';
+import 'sleet/gap.dart';
+import 'sleet/handset.dart';
+import 'sleet/invite.dart';
+import 'sleet/pane.dart';
+import 'sleet/post.dart';
+import 'sleet/shelf.dart';
+import 'sleet/slip.dart';
+import 'sleet/trace.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarIconBrightness: Brightness.light,
+  try {
+    await Firebase.initializeApp();
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? const AndroidDebugProvider()
+          : const AndroidPlayIntegrityProvider(),
+    );
+  } catch (_) {}
+
+  await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  await Bars.tuck();
+  await Handset.prime();
+
+  final shelf = Shelf();
+  final bankFuture = Bank.open();
+  await shelf.prime();
+  final bank = await bankFuture;
+  final dial = Dial();
+  final bell = Bell(shelf);
+  final board = Board(
+    shelf: shelf,
+    dial: dial,
+    trace: Trace(),
+    post: Post(shelf),
+    bell: bell,
+  );
+  final startGap = shelf.mark != Mark.cabin && !await dial.adapterUp();
+
+  runApp(EasyFreezy(
+    bank: bank,
+    board: board,
+    shelf: shelf,
+    bell: bell,
+    startGap: startGap,
   ));
-  final bank = await Bank.open();
-  runApp(EasyFreezy(bank: bank));
 }
 
-enum Stage { boot, lobby, table }
+enum Stage { boot, lobby, table, invite, pane, gap }
 
 class EasyFreezy extends StatefulWidget {
-  const EasyFreezy({super.key, required this.bank});
+  const EasyFreezy({
+    super.key,
+    required this.bank,
+    required this.board,
+    required this.shelf,
+    required this.bell,
+    required this.startGap,
+  });
 
   final Bank bank;
+  final Board board;
+  final Shelf shelf;
+  final Bell bell;
+  final bool startGap;
 
   @override
   State<EasyFreezy> createState() => _EasyFreezyState();
 }
 
-class _EasyFreezyState extends State<EasyFreezy> {
+class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
   final _bandit = Bandit();
   final _nav = GlobalKey<NavigatorState>();
   final _floor = GlobalKey<FloorViewState>();
-  Stage _stage = Stage.boot;
-  bool _rack = false;
+  late Stage _stage;
+  var _rack = false;
+  var _visualDone = false;
+  var _bootEpoch = 0;
+  var _gapFromPane = false;
+  Landing? _landing;
+  String? _glassUrl;
 
   Bank get _bank => widget.bank;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _stage = widget.startGap ? Stage.gap : Stage.boot;
+    if (!widget.startGap) _settle();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) Bars.tuck();
+  }
+
+  Future<void> _settle() async {
+    final landing = await widget.board.settle();
+    if (!mounted) return;
+    _landing = landing;
+    if (landing is GapLanding) {
+      setState(() => _stage = Stage.gap);
+      return;
+    }
+    _advance();
+  }
+
+  void _onBootReady() {
+    _visualDone = true;
+    _advance();
+  }
+
+  void _advance() {
+    final landing = _landing;
+    if (!_visualDone || landing == null || _stage != Stage.boot) return;
+    if (landing is CabinLanding) {
+      _lockPortrait();
+      setState(() => _stage = Stage.lobby);
+      return;
+    }
+    if (landing is GlassLanding) {
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+      setState(() {
+        _glassUrl = landing.url;
+        _stage = (!landing.coldTap && widget.shelf.shouldAsk) ? Stage.invite : Stage.pane;
+      });
+    }
+  }
+
+  void _retry() {
+    if (_gapFromPane && _glassUrl != null) {
+      setState(() {
+        _gapFromPane = false;
+        _stage = Stage.pane;
+      });
+      return;
+    }
+    setState(() {
+      _bootEpoch++;
+      _visualDone = false;
+      _landing = null;
+      _gapFromPane = false;
+      _stage = Stage.boot;
+    });
+    _settle();
+  }
+
+  void _openGlass() {
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    setState(() => _stage = Stage.pane);
+  }
+
+  void _paneOffline(String url) {
+    setState(() {
+      _glassUrl = url;
+      _gapFromPane = true;
+      _stage = Stage.gap;
+    });
+  }
 
   Future<void> _lockPortrait() {
     return SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -68,8 +207,12 @@ class _EasyFreezyState extends State<EasyFreezy> {
     );
   }
 
+  bool get _gameStage =>
+      _stage == Stage.boot || _stage == Stage.lobby || _stage == Stage.table;
+
   @override
   Widget build(BuildContext context) {
+    final glass = _glassUrl;
     return MaterialApp(
       navigatorKey: _nav,
       title: 'Easy Freezy',
@@ -89,7 +232,10 @@ class _EasyFreezyState extends State<EasyFreezy> {
         fit: StackFit.expand,
         children: [
           switch (_stage) {
-            Stage.boot => BootView(onReady: () => _goto(Stage.lobby)),
+            Stage.boot => BootView(
+                key: ValueKey<int>(_bootEpoch),
+                onReady: _onBootReady,
+              ),
             Stage.lobby => LobbyView(
                 bank: _bank,
                 onPlay: () => _goto(Stage.table),
@@ -116,8 +262,23 @@ class _EasyFreezyState extends State<EasyFreezy> {
                 onPrivacy: () => _openLegal('Privacy Policy', privacyUrl),
                 onSupport: () => _openLegal('Support', supportUrl),
               ),
+            Stage.invite => InviteView(
+                shelf: widget.shelf,
+                bell: widget.bell,
+                onDone: _openGlass,
+              ),
+            Stage.pane => glass == null
+                ? GapView(onRetry: _retry)
+                : GlassPane(
+                    key: ValueKey<String>(glass),
+                    url: glass,
+                    shelf: widget.shelf,
+                    bell: widget.bell,
+                    onOffline: _paneOffline,
+                  ),
+            Stage.gap => GapView(onRetry: _retry),
           },
-          if (kDebugMode && !_rack)
+          if (kDebugMode && _gameStage && !_rack)
             SafeArea(
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -131,7 +292,7 @@ class _EasyFreezyState extends State<EasyFreezy> {
                 ),
               ),
             ),
-          if (kDebugMode && _rack)
+          if (kDebugMode && _gameStage && _rack)
             DebugRack(
               bank: _bank,
               onBoot: () => _goto(Stage.boot),
