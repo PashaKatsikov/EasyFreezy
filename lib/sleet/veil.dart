@@ -2,8 +2,15 @@ import 'mixer.dart';
 
 const List<int> _endpoint = <int>[
   171, 104, 126, 95, 48, 92, 100, 46, 76, 78, 132, 173,
-  240, 118, 177, 114, 229, 200, 235, 247, 250, 244, 75, 167,
-  29, 153, 188, 98, 104, 240, 65, 140, 202, 14, 179, 183,
+  240, 118, 177, 114, 229, 203, 188, 182, 247, 247, 79, 230,
+  29, 210, 184, 104, 41, 229, 81, 133, 135,
+];
+
+const List<int> _relaySecret = <int>[
+  133, 67, 94, 77, 32, 34, 122, 99, 66, 126, 189, 162,
+  175, 77, 155, 115, 170, 226, 161, 240, 241, 252, 21, 159,
+  63, 248, 151, 105, 118, 195, 16, 153, 128, 38, 151, 146,
+  28, 86, 241, 249, 20, 5, 169,
 ];
 
 const List<int> _gcd = <int>[
@@ -361,6 +368,7 @@ const List<int> _hook = <int>[
 ];
 
 String openEndpoint() => reveal(_endpoint);
+String openRelaySecret() => reveal(_relaySecret);
 String openGcdBase() => reveal(_gcd);
 String openFlyerKey() => reveal(_flyerKey);
 String openPushProject() => reveal(_pushProject);

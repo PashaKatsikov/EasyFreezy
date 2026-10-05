@@ -1,3 +1,3 @@
-const String homeLink = 'https://easyfreezy.online';
-const String privacyLink = 'https://easyfreezy.online/privacy-policy.html';
-const String supportLink = 'https://easyfreezy.online/support.html';
+const String homeLink = 'https://easyfreezzy.com';
+const String privacyLink = 'https://easyfreezzy.com/privacy-policy';
+const String supportLink = 'https://easyfreezzy.com/support';

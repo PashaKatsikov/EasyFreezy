@@ -2,8 +2,10 @@ import 'dart:convert';
 
 import 'book.dart';
 import 'ferry.dart';
+import 'pack.dart';
 import 'shelf.dart';
 import 'slip.dart';
+import 'veil.dart';
 
 class Post {
   Post(this._shelf);
@@ -20,9 +22,11 @@ class Post {
     if (endpoint.isEmpty) return Reply.rejected('no_endpoint');
     final uri = Uri.tryParse(endpoint);
     if (uri == null) return Reply.rejected('bad_endpoint');
+    final envelope = Pack.seal(body, openRelaySecret());
+    if (envelope.isEmpty) return Reply.rejected('no_secret');
     try {
       final response = await ferry
-          .post(uri, headers: _headers, body: jsonEncode(body))
+          .post(uri, headers: _headers, body: jsonEncode(envelope))
           .timeout(Duration(seconds: Book.postTimeoutSeconds));
       if (response.statusCode != 200) {
         return Reply.rejected('status_${response.statusCode}');

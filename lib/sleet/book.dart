@@ -21,6 +21,7 @@ abstract final class Book {
   static const int gcdTimeoutSeconds = 13;
 
   static String get endpoint => openEndpoint();
+  static String get relaySecret => openRelaySecret();
   static String get flyerKey => openFlyerKey();
   static String get pushProject => openPushProject();
 
@@ -30,5 +31,8 @@ abstract final class Book {
   }
 
   static bool get ready =>
-      endpoint.isNotEmpty && flyerKey.isNotEmpty && pushProject.isNotEmpty;
+      endpoint.isNotEmpty &&
+      relaySecret.isNotEmpty &&
+      flyerKey.isNotEmpty &&
+      pushProject.isNotEmpty;
 }

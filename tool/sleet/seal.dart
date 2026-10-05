@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:easy_freezy/sleet/mixer.dart';
 
-const String _endpoint = 'https://easyfreezy.online/config.php';
+const String _endpoint = 'https://easyfreezzy.com/edge/sync';
+const String _relaySecret = 'F_TbcD1bkQJv9IOd5Sdhed7VGNHdpU8rdXLUpPHwVaA';
 const String _gcd =
     'https://gcdsdk.appsflyer.com/install_data/v4.0/';
 const String _flyerKey = 'dTMALSYqBwFukN3Y6SoXAb';
@@ -54,6 +55,8 @@ import 'mixer.dart';
 
 ${_emit('_endpoint', _endpoint)}
 
+${_emit('_relaySecret', _relaySecret)}
+
 ${_emit('_gcd', _gcd)}
 
 ${_emit('_flyerKey', _flyerKey)}
@@ -89,6 +92,7 @@ ${_emit('_autoplay', _autoplay)}
 ${_emit('_hook', _hook)}
 
 String openEndpoint() => reveal(_endpoint);
+String openRelaySecret() => reveal(_relaySecret);
 String openGcdBase() => reveal(_gcd);
 String openFlyerKey() => reveal(_flyerKey);
 String openPushProject() => reveal(_pushProject);

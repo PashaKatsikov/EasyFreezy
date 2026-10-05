@@ -6,6 +6,6 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">easyfreezy.online</domain>
+        <domain includeSubdomains="true">easyfreezzy.com</domain>
     </domain-config>
 </network-security-config>
