@@ -96,5 +96,5 @@ class _LegalPageState extends State<LegalPage> {
   }
 }
 
-const privacyUrl = 'https://easyfreezy.online/privacy-policy.html';
-const supportUrl = 'https://easyfreezy.online/support.html';
+const privacyUrl = 'https://easyfreezzy.com/privacy-policy';
+const supportUrl = 'https://easyfreezzy.com/support';
