@@ -16,6 +16,7 @@ class Shelf {
   static const String _snooze = '${_prefix}ask_at';
   static const String _granted = '${_prefix}ask_ok';
   static const String _blocked = '${_prefix}ask_no';
+  static const String _asked = '${_prefix}ask_done';
   static const String _pending = '${_prefix}hold';
   static const String _seen = '${_prefix}seen';
 
@@ -52,11 +53,18 @@ class Shelf {
 
   Future<void> markBlocked() => _prefs.setBool(_blocked, true);
 
+  /// True once the user has accepted the invite screen at least once. After
+  /// that the notifications invite is never shown again, regardless of the
+  /// system dialog outcome.
+  bool get askAccepted => _prefs.getBool(_asked) ?? false;
+
+  Future<void> markAsked() => _prefs.setBool(_asked, true);
+
   Future<void> snoozeUntil(int unixSeconds) =>
       _prefs.setInt(_snooze, unixSeconds);
 
   bool get shouldAsk {
-    if (permissionGranted || permissionBlocked) return false;
+    if (askAccepted || permissionGranted || permissionBlocked) return false;
     final until = _prefs.getInt(_snooze);
     if (until == null) return true;
     return _now() >= until;

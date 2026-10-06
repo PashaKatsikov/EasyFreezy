@@ -48,3 +48,11 @@ List<int> fold(String plain) {
     for (var i = 0; i < raw.length; i++) (raw[i] ^ _mask(i)) & 0xFF,
   ];
 }
+
+/// Byte-level fold/reveal (raw XOR with the keystream, no UTF-8 step). The
+/// operation is symmetric — the same call both folds plaintext bytes and
+/// reveals ciphertext bytes. Used by the Rust table generators for non-text
+/// numeric data (slot paytable, scatter tables, reel strips).
+List<int> foldBytes(List<int> raw) => <int>[
+      for (var i = 0; i < raw.length; i++) (raw[i] ^ _mask(i)) & 0xFF,
+    ];

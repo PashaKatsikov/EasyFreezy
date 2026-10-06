@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 
 import 'bank.dart';
 import 'boot.dart';
-import 'debug_rack.dart';
 import 'floor.dart';
 import 'legal.dart';
 import 'lobby.dart';
@@ -28,13 +27,25 @@ import 'sleet/trace.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await Firebase.initializeApp();
+    if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+    final o = Firebase.app().options;
+    debugPrint('[EF.FIRE] init ok: project=${o.projectId} '
+        'app=${o.appId} sender=${o.messagingSenderId}');
+  } catch (e, st) {
+    debugPrint('[EF.FIRE] init FAILED: $e');
+    debugPrint('$st');
+  }
+  try {
     await FirebaseAppCheck.instance.activate(
       providerAndroid: kDebugMode
           ? const AndroidDebugProvider()
           : const AndroidPlayIntegrityProvider(),
     );
-  } catch (_) {}
+    debugPrint('[EF.FIRE] appcheck activated '
+        '(${kDebugMode ? 'debug' : 'playIntegrity'})');
+  } catch (e) {
+    debugPrint('[EF.FIRE] appcheck activate failed: $e');
+  }
 
   await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   await Bars.tuck();
@@ -55,13 +66,15 @@ Future<void> main() async {
   );
   final startGap = shelf.mark != Mark.cabin && !await dial.adapterUp();
 
-  runApp(EasyFreezy(
-    bank: bank,
-    board: board,
-    shelf: shelf,
-    bell: bell,
-    startGap: startGap,
-  ));
+  runApp(
+    EasyFreezy(
+      bank: bank,
+      board: board,
+      shelf: shelf,
+      bell: bell,
+      startGap: startGap,
+    ),
+  );
 }
 
 enum Stage { boot, lobby, table, invite, pane, gap }
@@ -91,8 +104,9 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
   final _nav = GlobalKey<NavigatorState>();
   final _floor = GlobalKey<FloorViewState>();
   late Stage _stage;
-  var _rack = false;
   var _visualDone = false;
+  var _launchReady = false;
+  var _bootProgress = 0.0;
   var _bootEpoch = 0;
   var _gapFromPane = false;
   Landing? _landing;
@@ -120,13 +134,22 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
   }
 
   Future<void> _settle() async {
-    final landing = await widget.board.settle();
+    final landing = await widget.board.settle(
+      onProgress: (p) {
+        if (mounted) setState(() => _bootProgress = p);
+      },
+    );
     if (!mounted) return;
     _landing = landing;
     if (landing is GapLanding) {
       setState(() => _stage = Stage.gap);
       return;
     }
+    // Launch target resolved: let the boot bar run to 100% before we switch.
+    setState(() {
+      _bootProgress = 1;
+      _launchReady = true;
+    });
     _advance();
   }
 
@@ -145,9 +168,13 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
     }
     if (landing is GlassLanding) {
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+      final ask = !landing.coldTap && widget.shelf.shouldAsk;
+      debugPrint('[EF.FIRE] glass landing: coldTap=${landing.coldTap} '
+          'shouldAsk=${widget.shelf.shouldAsk} -> '
+          '${ask ? 'INVITE' : 'PANE'}');
       setState(() {
         _glassUrl = landing.url;
-        _stage = (!landing.coldTap && widget.shelf.shouldAsk) ? Stage.invite : Stage.pane;
+        _stage = ask ? Stage.invite : Stage.pane;
       });
     }
   }
@@ -163,6 +190,8 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
     setState(() {
       _bootEpoch++;
       _visualDone = false;
+      _launchReady = false;
+      _bootProgress = 0;
       _landing = null;
       _gapFromPane = false;
       _stage = Stage.boot;
@@ -184,13 +213,14 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
   }
 
   Future<void> _lockPortrait() {
-    return SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    return SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
   }
 
   void _goto(Stage s) {
     setState(() {
       _stage = s;
-      _rack = false;
     });
     if (s == Stage.boot) {
       SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -206,9 +236,6 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
       ),
     );
   }
-
-  bool get _gameStage =>
-      _stage == Stage.boot || _stage == Stage.lobby || _stage == Stage.table;
 
   @override
   Widget build(BuildContext context) {
@@ -228,106 +255,56 @@ class _EasyFreezyState extends State<EasyFreezy> with WidgetsBindingObserver {
           surface: Ice.voidBg,
         ),
       ),
-      home: Stack(
-        fit: StackFit.expand,
-        children: [
-          switch (_stage) {
-            Stage.boot => BootView(
-                key: ValueKey<int>(_bootEpoch),
-                onReady: _onBootReady,
-              ),
-            Stage.lobby => LobbyView(
-                bank: _bank,
-                onPlay: () => _goto(Stage.table),
-                onDaily: () {
-                  _goto(Stage.table);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _floor.currentState?.showDaily();
-                  });
-                },
-                onPay: () {
-                  _goto(Stage.table);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _floor.currentState?.showPay();
-                  });
-                },
-                onPrivacy: () => _openLegal('Privacy Policy', privacyUrl),
-                onSupport: () => _openLegal('Support', supportUrl),
-              ),
-            Stage.table => FloorView(
-                key: _floor,
-                bank: _bank,
-                bandit: _bandit,
-                onLobby: () => _goto(Stage.lobby),
-                onPrivacy: () => _openLegal('Privacy Policy', privacyUrl),
-                onSupport: () => _openLegal('Support', supportUrl),
-              ),
-            Stage.invite => InviteView(
-                shelf: widget.shelf,
-                bell: widget.bell,
-                onDone: _openGlass,
-              ),
-            Stage.pane => glass == null
-                ? GapView(onRetry: _retry)
-                : GlassPane(
-                    key: ValueKey<String>(glass),
-                    url: glass,
-                    shelf: widget.shelf,
-                    bell: widget.bell,
-                    onOffline: _paneOffline,
-                  ),
-            Stage.gap => GapView(onRetry: _retry),
+      home: switch (_stage) {
+        Stage.boot => BootView(
+          key: ValueKey<int>(_bootEpoch),
+          onReady: _onBootReady,
+          progress: _bootProgress,
+          launchReady: _launchReady,
+        ),
+        Stage.lobby => LobbyView(
+          bank: _bank,
+          onPlay: () => _goto(Stage.table),
+          onDaily: () {
+            _goto(Stage.table);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _floor.currentState?.showDaily();
+            });
           },
-          if (kDebugMode && _gameStage && !_rack)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _rack = true),
-                    behavior: HitTestBehavior.opaque,
-                    child: const SizedBox(width: 44, height: 36),
-                  ),
+          onPay: () {
+            _goto(Stage.table);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _floor.currentState?.showPay();
+            });
+          },
+          onPrivacy: () => _openLegal('Privacy Policy', privacyUrl),
+          onSupport: () => _openLegal('Support', supportUrl),
+        ),
+        Stage.table => FloorView(
+          key: _floor,
+          bank: _bank,
+          bandit: _bandit,
+          onLobby: () => _goto(Stage.lobby),
+          onPrivacy: () => _openLegal('Privacy Policy', privacyUrl),
+          onSupport: () => _openLegal('Support', supportUrl),
+        ),
+        Stage.invite => InviteView(
+          shelf: widget.shelf,
+          bell: widget.bell,
+          onDone: _openGlass,
+        ),
+        Stage.pane =>
+          glass == null
+              ? GapView(onRetry: _retry)
+              : GlassPane(
+                  key: ValueKey<String>(glass),
+                  url: glass,
+                  shelf: widget.shelf,
+                  bell: widget.bell,
+                  onOffline: _paneOffline,
                 ),
-              ),
-            ),
-          if (kDebugMode && _gameStage && _rack)
-            DebugRack(
-              bank: _bank,
-              onBoot: () => _goto(Stage.boot),
-              onLobby: () => _goto(Stage.lobby),
-              onTable: () => _goto(Stage.table),
-              onPrivacy: () {
-                setState(() => _rack = false);
-                _openLegal('Privacy Policy', privacyUrl);
-              },
-              onSupport: () {
-                setState(() => _rack = false);
-                _openLegal('Support', supportUrl);
-              },
-              onDaily: () {
-                _goto(Stage.table);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _floor.currentState?.showDaily();
-                });
-              },
-              onPay: () {
-                _goto(Stage.table);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _floor.currentState?.showPay();
-                });
-              },
-              onSpin: (force) {
-                _goto(Stage.table);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _floor.currentState?.pull(force: force);
-                });
-              },
-              onClose: () => setState(() => _rack = false),
-            ),
-        ],
-      ),
+        Stage.gap => GapView(onRetry: _retry),
+      },
     );
   }
 }

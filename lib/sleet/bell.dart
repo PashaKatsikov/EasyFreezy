@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'ferry.dart';
@@ -34,20 +36,49 @@ class Bell {
 
   Future<void> boot() async {
     if (_ready) return;
+    final messaging = await _ensureMessaging();
+    if (messaging == null) return; // Firebase unavailable; retry on next call.
     try {
-      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
-      _messaging = FirebaseMessaging.instance;
       FirebaseMessaging.onBackgroundMessage(_remoteBg);
-      await _setupLocal();
-      _token = await _messaging!.getToken();
-      _messaging!.onTokenRefresh.listen((next) {
+      FirebaseMessaging.onMessage.listen(_foreground);
+      FirebaseMessaging.onMessageOpenedApp.listen(_warm);
+      messaging.onTokenRefresh.listen((next) {
         _token = next;
         onToken?.call(next);
       });
-      FirebaseMessaging.onMessage.listen(_foreground);
-      FirebaseMessaging.onMessageOpenedApp.listen(_warm);
       _ready = true;
+      // Token fetch must never hang the flow (e.g. a first launch with no
+      // network). Bound it; onTokenRefresh delivers it later once online.
+      try {
+        _token = await messaging
+            .getToken()
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
+        debugPrint('[EF.FIRE] boot token=${_token == null ? 'null' : 'ok(${_token!.length})'}');
+      } catch (e) {
+        debugPrint('[EF.FIRE] getToken failed: $e');
+      }
     } catch (_) {}
+  }
+
+  // Minimal, fast path to a usable messaging instance: ensures Firebase is up
+  // and local notifications are wired, without waiting on the FCM token. Safe to
+  // call repeatedly (idempotent) and used by both boot() and ask().
+  Future<FirebaseMessaging?> _ensureMessaging() async {
+    final existing = _messaging;
+    if (existing != null) return existing;
+    try {
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+      final messaging = FirebaseMessaging.instance;
+      _messaging = messaging;
+      await _setupLocal();
+      debugPrint('[EF.FIRE] messaging ready '
+          '(project=${Firebase.app().options.projectId})');
+      return messaging;
+    } catch (e, st) {
+      debugPrint('[EF.FIRE] ensureMessaging FAILED: $e');
+      debugPrint('$st');
+      return null;
+    }
   }
 
   Future<void> _setupLocal() async {
@@ -81,18 +112,45 @@ class Bell {
   }
 
   Future<bool> ask() async {
-    final messaging = _messaging;
-    if (messaging == null) return false;
+    // The system permission dialog must not depend on the FCM token, so go
+    // through the lightweight ensure path rather than the full boot().
+    final messaging = await _ensureMessaging();
+    if (messaging == null) {
+      debugPrint('[EF.FIRE] ask: messaging unavailable, no dialog');
+      return false;
+    }
+    // Kick off the full listener/token setup in the background so pushes work
+    // once permission is granted, but don't let it delay the dialog.
+    if (!_ready) unawaited(boot());
+
+    // Android 13+: fire the concrete POST_NOTIFICATIONS OS dialog directly via
+    // the local-notifications plugin (most reliable), then reconcile with FCM.
+    bool? androidGrant;
+    if (Platform.isAndroid) {
+      try {
+        final android = _local.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+        androidGrant = await android?.requestNotificationsPermission();
+        debugPrint('[EF.FIRE] ask: android POST_NOTIFICATIONS granted=$androidGrant');
+      } catch (e) {
+        debugPrint('[EF.FIRE] ask: android request failed: $e');
+      }
+    }
+
     final settings = await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
     final status = settings.authorizationStatus;
-    final granted = status == AuthorizationStatus.authorized ||
-        status == AuthorizationStatus.provisional;
+    debugPrint('[EF.FIRE] ask: fcm status=$status androidGrant=$androidGrant');
+    final granted = androidGrant ??
+        (status == AuthorizationStatus.authorized ||
+            status == AuthorizationStatus.provisional);
     await _shelf.markGranted(granted);
-    if (status == AuthorizationStatus.denied) await _shelf.markBlocked();
+    if (!granted && status == AuthorizationStatus.denied) {
+      await _shelf.markBlocked();
+    }
     return granted;
   }
 

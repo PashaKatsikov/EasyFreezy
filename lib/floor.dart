@@ -86,9 +86,8 @@ class FloorViewState extends State<FloorView> with SingleTickerProviderStateMixi
     if (_landed >= 5) _settle();
   }
 
-  Future<void> pull({ForcePull? force}) async {
+  Future<void> pull() async {
     if (_busy || _layer != _Layer.none) return;
-    if (force != null) _bandit.force = force;
     if (!_bank.canSpin) {
       _brokeDrop = _bank.refill();
       setState(() => _layer = _Layer.broke);

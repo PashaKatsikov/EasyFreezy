@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../look.dart';
 import 'art.dart';
 import 'bell.dart';
 import 'book.dart';
 import 'pill.dart';
 import 'shelf.dart';
+import 'veil.dart';
 
 class InviteView extends StatelessWidget {
   const InviteView({
@@ -19,14 +21,15 @@ class InviteView extends StatelessWidget {
   final VoidCallback onDone;
 
   Future<void> _accept() async {
-    final granted = await bell.ask();
-    if (!granted) {
-      await shelf.snoozeUntil(_until());
-    }
+    // Trigger the system notification permission dialog, then never show the
+    // invite screen again — regardless of whether the user allowed or denied.
+    await bell.ask();
+    await shelf.markAsked();
     onDone();
   }
 
   Future<void> _skip() async {
+    // Show the invite again on a later launch, once the snooze window elapses.
     await shelf.snoozeUntil(_until());
     onDone();
   }
@@ -36,37 +39,48 @@ class InviteView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final land = MediaQuery.orientationOf(context) == Orientation.landscape;
-    final bg = land ? SleetArt.bonusWide : SleetArt.bonusTall;
-    return MediaQuery(
-      data: land
-          ? MediaQuery.of(context).copyWith(
-              padding: EdgeInsets.zero,
-              viewPadding: EdgeInsets.zero,
-              viewInsets: EdgeInsets.zero,
-            )
-          : MediaQuery.of(context),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF050814),
-        body: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            Image.asset(bg, fit: BoxFit.cover, width: size.width, height: size.height),
-            Positioned(
-              left: size.width * (land ? 0.28 : 0.12),
-              right: size.width * (land ? 0.28 : 0.12),
-              bottom: size.height * (land ? 0.06 : 0.07),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  IcePill(label: 'Accept', onTap: _accept),
-                  SizedBox(height: land ? 8 : 12),
-                  IcePill(label: 'Skip', filled: false, onTap: _skip),
-                ],
-              ),
+    final w = MediaQuery.sizeOf(context).width;
+    final pillWidth = land ? w * 0.34 : w * 0.72;
+    return Scaffold(
+      body: SleetBackdrop(
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: land ? 56 : 28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                const Spacer(flex: 2),
+                Icon(
+                  Icons.notifications_active_rounded,
+                  size: land ? 52 : 72,
+                  color: Ice.cyan,
+                ),
+                SizedBox(height: land ? 16 : 28),
+                Text(
+                  openInviteTitle(),
+                  textAlign: TextAlign.center,
+                  style: russo(land ? 21 : 25, Ice.cream, ls: 1.0, glow: true),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  openInviteBody(),
+                  textAlign: TextAlign.center,
+                  style: barlow(land ? 15 : 17, Ice.dim),
+                ),
+                const Spacer(flex: 3),
+                IcePill(label: 'Accept', width: pillWidth, onTap: _accept),
+                SizedBox(height: land ? 8 : 12),
+                IcePill(
+                  label: 'Skip',
+                  width: pillWidth,
+                  filled: false,
+                  onTap: _skip,
+                ),
+                SizedBox(height: land ? 16 : 28),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

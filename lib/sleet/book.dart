@@ -6,7 +6,7 @@ abstract final class Book {
   static const String displayName = 'Easy Freezy';
   static const String storeNumericId = '';
 
-  static const int snoozeSeconds = 186240;
+  static const int snoozeSeconds = 259190;
   static const int organicWaitSeconds = 9;
   static const int postTimeoutSeconds = 22;
   static const int firstWaitSeconds = 27;

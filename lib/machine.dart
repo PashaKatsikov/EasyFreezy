@@ -1,4 +1,5 @@
-import 'dart:math';
+import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'gfx.dart';
 
@@ -15,6 +16,22 @@ enum Kind {
   wild,
   scatter,
 }
+
+// Symbol artwork is not sensitive and stays in Dart; the pay values that make up
+// each Face are served (decrypted) from the native component at startup.
+const Map<Kind, String> _art = <Kind, String>{
+  Kind.ten: Gfx.ten,
+  Kind.jack: Gfx.jack,
+  Kind.queen: Gfx.queen,
+  Kind.king: Gfx.king,
+  Kind.ace: Gfx.ace,
+  Kind.phone: Gfx.phone,
+  Kind.bulb: Gfx.bulb,
+  Kind.hoodie: Gfx.hoodie,
+  Kind.crown: Gfx.crown,
+  Kind.wild: Gfx.wild,
+  Kind.scatter: Gfx.scatter,
+};
 
 class Face {
   const Face(this.kind, this.art, this.three, this.four, this.five);
@@ -33,24 +50,10 @@ class Face {
   }
 }
 
-const faces = <Kind, Face>{
-  Kind.ten: Face(Kind.ten, Gfx.ten, 2, 6, 16),
-  Kind.jack: Face(Kind.jack, Gfx.jack, 2, 6, 16),
-  Kind.queen: Face(Kind.queen, Gfx.queen, 3, 8, 20),
-  Kind.king: Face(Kind.king, Gfx.king, 3, 8, 20),
-  Kind.ace: Face(Kind.ace, Gfx.ace, 4, 10, 25),
-  Kind.phone: Face(Kind.phone, Gfx.phone, 5, 14, 35),
-  Kind.bulb: Face(Kind.bulb, Gfx.bulb, 6, 18, 45),
-  Kind.hoodie: Face(Kind.hoodie, Gfx.hoodie, 8, 25, 60),
-  Kind.crown: Face(Kind.crown, Gfx.crown, 15, 40, 100),
-  Kind.wild: Face(Kind.wild, Gfx.wild, 20, 60, 200),
-  Kind.scatter: Face(Kind.scatter, Gfx.scatter, 0, 0, 0),
-};
-
-const scatterPay = <int, int>{3: 20, 4: 80, 5: 250};
-const scatterFree = <int, int>{3: 8, 4: 12, 5: 20};
-
-enum ForcePull { off, dead, big, mega, scatters }
+/// Paytable, populated from the native component when [Bandit] is constructed.
+/// Consumed by the reel tiles and the paytable sheet for display only; the
+/// actual math runs natively.
+late Map<Kind, Face> faces;
 
 class Hit {
   Hit({
@@ -111,145 +114,171 @@ class Outcome {
   }
 }
 
+// ── native bridge (dart:ffi → libsleet.so) ───────────────────────────────────
+
+typedef _BufNative = Pointer<Uint8> Function();
+typedef _BufDart = Pointer<Uint8> Function();
+typedef _SpinNative = Pointer<Uint8> Function(Int64, Uint8);
+typedef _SpinDart = Pointer<Uint8> Function(int, int);
+typedef _FreeNative = Void Function(Pointer<Uint8>, Uint64);
+typedef _FreeDart = void Function(Pointer<Uint8>, int);
+
+class _Native {
+  _Native._(this.strips, this.paytable, this.spin, this.free);
+
+  final _BufDart strips;
+  final _BufDart paytable;
+  final _SpinDart spin;
+  final _FreeDart free;
+
+  static _Native? _it;
+
+  static _Native get it {
+    final cached = _it;
+    if (cached != null) return cached;
+    final lib = DynamicLibrary.open('libsleet.so');
+    final n = _Native._(
+      lib.lookupFunction<_BufNative, _BufDart>('slot_strips'),
+      lib.lookupFunction<_BufNative, _BufDart>('slot_paytable'),
+      lib.lookupFunction<_SpinNative, _SpinDart>('slot_spin'),
+      lib.lookupFunction<_FreeNative, _FreeDart>('slot_free'),
+    );
+    _it = n;
+    return n;
+  }
+
+  /// Copies a length-framed buffer (4-byte LE total header + payload) into Dart
+  /// memory, releases the native allocation and returns the payload bytes.
+  Uint8List take(Pointer<Uint8> ptr) {
+    final total =
+        ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
+    final payload = Uint8List.fromList(ptr.asTypedList(total).sublist(4));
+    free(ptr, total);
+    return payload;
+  }
+}
+
 class Bandit {
-  Bandit([Random? rng]) : rng = rng ?? Random();
+  Bandit() {
+    _loadPaytable();
+    final sets = _loadStrips();
+    strips = sets[0];
+    hot = sets[1];
+  }
 
-  final Random rng;
-  ForcePull force = ForcePull.off;
+  late final List<List<Kind>> strips;
+  late final List<List<Kind>> hot;
 
-  late final strips = <List<Kind>>[
-    _weave(0, wilds: 1, scatters: 1),
-    _weave(1, wilds: 2, scatters: 1),
-    _weave(2, wilds: 2, scatters: 2),
-    _weave(3, wilds: 2, scatters: 1),
-    _weave(4, wilds: 1, scatters: 1),
-  ];
+  void _loadPaytable() {
+    final p = _Native.it.take(_Native.it.paytable()); // 11 * 3 bytes
+    final map = <Kind, Face>{};
+    for (var i = 0; i < Kind.values.length; i++) {
+      final k = Kind.values[i];
+      map[k] = Face(k, _art[k]!, p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+    }
+    faces = map;
+  }
 
-  late final hot = <List<Kind>>[
-    _weave(10, wilds: 3, scatters: 1, lean: true),
-    _weave(11, wilds: 4, scatters: 1, lean: true),
-    _weave(12, wilds: 4, scatters: 2, lean: true),
-    _weave(13, wilds: 4, scatters: 1, lean: true),
-    _weave(14, wilds: 3, scatters: 1, lean: true),
-  ];
+  List<List<List<Kind>>> _loadStrips() {
+    final b = _Native.it.take(_Native.it.strips());
+    final bd = ByteData.sublistView(b);
+    var off = 0;
+    final reels = b[off];
+    off += 1;
 
-  List<Kind> _weave(int seed, {required int wilds, required int scatters, bool lean = false}) {
-    final bag = <Kind>[
-      ...List.filled(lean ? 3 : 5, Kind.ten),
-      ...List.filled(lean ? 3 : 5, Kind.jack),
-      ...List.filled(lean ? 3 : 4, Kind.queen),
-      ...List.filled(lean ? 3 : 4, Kind.king),
-      ...List.filled(3, Kind.ace),
-      ...List.filled(3, Kind.phone),
-      ...List.filled(2, Kind.bulb),
-      ...List.filled(lean ? 3 : 2, Kind.hoodie),
-      ...List.filled(lean ? 3 : 2, Kind.crown),
-      ...List.filled(wilds, Kind.wild),
-      ...List.filled(scatters, Kind.scatter),
-    ];
-    bag.shuffle(Random(seed * 97 + 13));
-    return bag;
+    List<List<Kind>> readSet() {
+      final out = <List<Kind>>[];
+      for (var r = 0; r < reels; r++) {
+        final len = bd.getUint16(off, Endian.little);
+        off += 2;
+        final reel = <Kind>[];
+        for (var i = 0; i < len; i++) {
+          reel.add(Kind.values[b[off]]);
+          off += 1;
+        }
+        out.add(reel);
+      }
+      return out;
+    }
+
+    final base = readSet();
+    final hotSet = readSet();
+    return <List<List<Kind>>>[base, hotSet];
   }
 
   Outcome pull({required int stake, required bool bonus}) {
-    final used = bonus ? hot : strips;
-    late final List<List<Kind>> src;
-    late final List<int> stops;
-    switch (force) {
-      case ForcePull.off:
-        src = used;
-        stops = [for (final s in used) rng.nextInt(s.length)];
-      case ForcePull.dead:
-        // Reel 0 and reel 1 use disjoint symbol sets (no wild, no scatter),
-        // so no kind can ever chain past length 1 from the leftmost reel.
-        // What sits on reels 2-4 is irrelevant to the payout once that's true.
-        src = [
-          [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-          [Kind.ace, Kind.phone, Kind.bulb, Kind.hoodie],
-          [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-          [Kind.ace, Kind.phone, Kind.bulb, Kind.hoodie],
-          [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-        ];
-        stops = [0, 0, 0, 0, 0];
-      case ForcePull.big:
-        src = [
-          for (var i = 0; i < 5; i++) [Kind.crown, Kind.ten, Kind.jack, Kind.queen],
-        ];
-        stops = [0, 0, 0, 0, 0];
-      case ForcePull.mega:
-        src = [for (var i = 0; i < 5; i++) List.filled(4, Kind.crown)];
-        stops = [0, 0, 0, 0, 0];
-      case ForcePull.scatters:
-        src = [
-          [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-          [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-          [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-          [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-          [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-        ];
-        stops = [0, 0, 0, 0, 0];
-    }
-    force = ForcePull.off;
-    return read(src, stops, stake, bonus);
+    final b = _Native.it.take(_Native.it.spin(stake, bonus ? 1 : 0));
+    return _decode(b);
   }
 
-  static Outcome read(List<List<Kind>> used, List<int> stops, int stake, bool bonus) {
-    final grid = <List<Kind>>[
-      for (var r = 0; r < 5; r++)
-        [for (var y = 0; y < 4; y++) used[r][(stops[r] + y) % used[r].length]],
-    ];
+  Outcome _decode(Uint8List b) {
+    final bd = ByteData.sublistView(b);
+    var off = 0;
 
+    final usedFlag = b[off];
+    off += 1;
+    final stops = <int>[];
+    for (var r = 0; r < 5; r++) {
+      stops.add(bd.getUint16(off, Endian.little));
+      off += 2;
+    }
+    final used = usedFlag == 1 ? hot : strips;
+
+    final grid = <List<Kind>>[];
+    for (var r = 0; r < 5; r++) {
+      final col = <Kind>[];
+      for (var y = 0; y < 4; y++) {
+        col.add(Kind.values[b[off]]);
+        off += 1;
+      }
+      grid.add(col);
+    }
+
+    final scatterCount = b[off];
+    off += 1;
+    final scatterPayoff = bd.getInt64(off, Endian.little);
+    off += 8;
+    final freeAwarded = bd.getUint16(off, Endian.little);
+    off += 2;
+    final paid = bd.getInt64(off, Endian.little);
+    off += 8;
+
+    final hitCount = b[off];
+    off += 1;
     final hits = <Hit>[];
-    for (final kind in Kind.values) {
-      if (kind == Kind.scatter) continue;
+    for (var h = 0; h < hitCount; h++) {
+      final kind = Kind.values[b[off]];
+      off += 1;
+      final length = b[off];
+      off += 1;
+      final ways = bd.getUint32(off, Endian.little);
+      off += 4;
+      final payout = bd.getInt64(off, Endian.little);
+      off += 8;
       final mask = List.generate(5, (_) => List.filled(4, false));
-      var length = 0;
-      var ways = 1;
       for (var r = 0; r < 5; r++) {
-        var n = 0;
         for (var y = 0; y < 4; y++) {
-          final cell = grid[r][y];
-          final ok = kind == Kind.wild ? cell == Kind.wild : cell == kind || cell == Kind.wild;
-          if (ok) {
-            n++;
-            mask[r][y] = true;
-          }
+          mask[r][y] = b[off] != 0;
+          off += 1;
         }
-        if (n == 0) break;
-        ways *= n;
-        length++;
       }
-      final unit = faces[kind]!.pay(length);
-      if (unit > 0) {
-        hits.add(Hit(
-          kind: kind,
-          length: length,
-          ways: ways,
-          payout: stake * unit * ways ~/ 10,
-          mask: mask,
-        ));
-      }
+      hits.add(Hit(
+        kind: kind,
+        length: length,
+        ways: ways,
+        payout: payout,
+        mask: mask,
+      ));
     }
 
-    var scatters = 0;
-    for (final col in grid) {
-      for (final c in col) {
-        if (c == Kind.scatter) scatters++;
-      }
-    }
-    final sPay = stake * (scatterPay[scatters] ?? 0) ~/ 10;
-    var free = scatterFree[scatters] ?? 0;
-    if (bonus && free > 0) free = 5;
-
-    final paid = hits.fold<int>(0, (a, h) => a + h.payout) + sPay;
     return Outcome(
       grid: grid,
       stops: stops,
       strips: used,
       hits: hits,
-      scatterCount: scatters,
-      scatterPayoff: sPay,
-      freeAwarded: free,
+      scatterCount: scatterCount,
+      scatterPayoff: scatterPayoff,
+      freeAwarded: freeAwarded,
       paid: paid,
     );
   }

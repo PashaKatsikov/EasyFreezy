@@ -55,3 +55,8 @@ android/key.properties
 
 # Local signed artifacts (kept on disk, not in git)
 /release/
+
+# Rust gray-layer build artifacts (libsleet.so is generated into jniLibs at build time)
+/rust/target/
+/android/app/src/main/jniLibs/
+

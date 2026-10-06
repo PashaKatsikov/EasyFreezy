@@ -124,7 +124,7 @@ class _GlassPaneState extends State<GlassPane> with WidgetsBindingObserver {
     _view = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(Handset.agent)
-      ..setBackgroundColor(Ice.voidBg)
+      ..setBackgroundColor(const Color(0xFF000000))
       ..enableZoom(false)
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -257,7 +257,7 @@ class _GlassPaneState extends State<GlassPane> with WidgetsBindingObserver {
       child: MediaQuery(
         data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
         child: Scaffold(
-          backgroundColor: Ice.voidBg,
+          backgroundColor: const Color(0xFF000000),
           resizeToAvoidBottomInset: false,
           body: Stack(
             fit: StackFit.expand,

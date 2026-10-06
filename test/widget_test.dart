@@ -3,6 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:easy_freezy/look.dart';
 import 'package:easy_freezy/machine.dart';
 
+// The slot math (strips, RNG, paytable, payout evaluation) now lives in the
+// native Rust component (rust/src/slot.rs) and is covered by `cargo test` there,
+// since it cannot run on the host without libsleet.so. These tests only cover
+// pure-Dart helpers.
 void main() {
   test('chip formatter groups thousands', () {
     expect(chips(0), '0');
@@ -10,43 +14,19 @@ void main() {
     expect(chips(8450000), '8,450,000');
   });
 
-  test('three crowns from the left pay', () {
-    final strips = [
-      [Kind.crown, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.crown, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.crown, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-    ];
-    final out = Bandit.read(strips, [0, 0, 0, 0, 0], 100, false);
-    expect(out.hits.any((h) => h.kind == Kind.crown && h.length == 3), isTrue);
-    expect(out.paid, greaterThan(0));
+  test('Face.pay picks the right tier by match length', () {
+    const f = Face(Kind.crown, '', 15, 40, 100);
+    expect(f.pay(2), 0);
+    expect(f.pay(3), 15);
+    expect(f.pay(4), 40);
+    expect(f.pay(5), 100);
+    expect(f.pay(6), 100); // 5+ caps at the five-of-a-kind tier
   });
 
-  test('forced dead grid never pays', () {
-    final strips = [
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-      [Kind.ace, Kind.phone, Kind.bulb, Kind.hoodie],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-      [Kind.ace, Kind.phone, Kind.bulb, Kind.hoodie],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-    ];
-    final out = Bandit.read(strips, [0, 0, 0, 0, 0], 500, false);
-    expect(out.paid, 0);
-    expect(out.freeAwarded, 0);
-    expect(out.hits, isEmpty);
-  });
-
-  test('three scatters award free spins', () {
-    final strips = [
-      [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.scatter, Kind.ten, Kind.jack, Kind.queen],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-      [Kind.ten, Kind.jack, Kind.queen, Kind.king],
-    ];
-    final out = Bandit.read(strips, [0, 0, 0, 0, 0], 100, false);
-    expect(out.scatterCount, 3);
-    expect(out.freeAwarded, 8);
+  test('Kind enum order matches the native symbol ids', () {
+    // slot.rs encodes wild=9, scatter=10; Dart decodes via Kind.values[id].
+    expect(Kind.values.length, 11);
+    expect(Kind.wild.index, 9);
+    expect(Kind.scatter.index, 10);
   });
 }

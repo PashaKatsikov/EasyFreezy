@@ -168,29 +168,4 @@ class Bank extends ChangeNotifier {
     _flush();
     return drop;
   }
-
-  void inject(int n) {
-    chips += n;
-    if (chips < 0) chips = 0;
-    notifyListeners();
-    _flush();
-  }
-
-  Future<void> wipe() async {
-    chips = startChips;
-    jackpot = startJackpot;
-    stakeIndex = 1;
-    streak = 0;
-    lastClaim = null;
-    refillDay = null;
-    refills = 0;
-    lifetime = 0;
-    freeLeft = 0;
-    freeTotal = 0;
-    freeBucket = 0;
-    lastPaid = 0;
-    auto = false;
-    await _db.clear();
-    notifyListeners();
-  }
 }
