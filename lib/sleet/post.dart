@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
+
 import 'book.dart';
-import 'pack.dart';
 import 'shelf.dart';
 import 'slip.dart';
 import 'veil.dart';
@@ -12,15 +13,18 @@ class Post {
 
   final Shelf _shelf;
 
-  /// Posts the attribution envelope through the native Chrome-fingerprinted
-  /// transport (see rust/src/net.rs). The actual URL / method / headers all
-  /// live encrypted in the native table and are resolved per call inside
-  /// Rust, so there is nothing to pass or configure from here.
+  /// Posts the attribution map as plain JSON through the native
+  /// Chrome-fingerprinted transport (see rust/src/net.rs). The partner
+  /// config reads this body directly and answers with plain JSON:
+  ///
+  ///   `200 { "ok": true, "url": "...", "expires": <unix seconds> }`
+  ///   `404 { "ok": false, "message": "No data" }`
+  ///
+  /// Only the first shape opens the WebView. The URL, method and header
+  /// names stay encrypted in the native table.
   Future<Reply> ask(Map<String, dynamic> body) async {
-    final envelope = Pack.seal(body, openRelaySecret());
-    if (envelope.isEmpty) return Reply.rejected('no_secret');
     try {
-      final payload = utf8.encode(jsonEncode(envelope));
+      final payload = utf8.encode(jsonEncode(body));
       // The FFI call blocks for up to postTimeoutSeconds (TLS + round trip),
       // so we hop to a short-lived worker isolate to keep the UI isolate
       // responsive. Isolate.run copies the result back automatically.
@@ -30,20 +34,30 @@ class Post {
       );
       final status = result.status;
       if (status == 0) {
+        debugPrint('[EF.POST] transport ${result.body}');
         return Reply.rejected('transport:${result.body}');
       }
-      if (status != 200) {
-        return Reply.rejected('status_$status');
+      final reply = _read(result.body);
+      debugPrint('[EF.POST] status=$status ok=${reply.approved} '
+          'url=${reply.hasDestination} note=${reply.note}');
+      if (status != 200 || !reply.hasDestination) {
+        return Reply.rejected(reply.note ?? 'status_$status');
       }
-      final reply = Reply.decodeBody(result.body);
-      if (reply.hasDestination) {
-        await _shelf.rememberUrl(reply.url!, reply.expiresAt);
-      }
+      await _shelf.rememberUrl(reply.url!, reply.expiresAt);
       return reply;
     } on FormatException {
       return Reply.rejected('bad_json');
     } catch (error) {
+      debugPrint('[EF.POST] transport $error');
       return Reply.rejected('transport:$error');
+    }
+  }
+
+  Reply _read(String raw) {
+    try {
+      return Reply.decodeBody(raw);
+    } on FormatException {
+      return Reply.rejected('bad_json');
     }
   }
 }

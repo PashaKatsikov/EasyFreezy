@@ -25,37 +25,36 @@ typedef _PostDart = Pointer<Uint8> Function(Pointer<Uint8>, int, int);
 
 // FFI ids — must stay in sync with the DATA order in rust/src/table.rs.
 //
-// Ids 23..26 (httpMethod, headerAccept, headerContentType, mimeJson) are
+// Ids 22..25 (httpMethod, headerAccept, headerContentType, mimeJson) are
 // native-only: they're consumed inside Rust (rust/src/net.rs) when the HTTP
 // transport fires, and are deliberately NOT exposed through veil.dart so the
 // URL/method/header surface never materialises in plaintext on the Dart side.
-// Keeping `_idEndpoint` out of this list for the same reason: the real URL
-// is resolved per call inside net.rs via DATA[ID_ENDPOINT].
-const int _idRelaySecret = 1;
-const int _idGcd = 2;
-const int _idFlyerKey = 3;
-const int _idPushProject = 4;
-const int _idProduct = 5;
-const int _idLinuxOpen = 6;
-const int _idBuildLabel = 7;
-const int _idBuildClose = 8;
-const int _idEngineLabel = 9;
-const int _idEngineTail = 10;
-const int _idChromeLabel = 11;
-const int _idSafariLabel = 12;
-const int _idChrome = 13;
-const int _idWebkit = 14;
-const int _idSafeArea = 15;
-const int _idKeyboard = 16;
-const int _idAutoplay = 17;
-const int _idHook = 18;
-const int _idInviteTitle = 19;
-const int _idInviteBody = 20;
-const int _idGapTitle = 21;
-const int _idGapBody = 22;
+// Keeping `_idEndpoint` (0) out of this list for the same reason: the real
+// URL is resolved per call inside net.rs via DATA[ID_ENDPOINT].
+const int _idGcd = 1;
+const int _idFlyerKey = 2;
+const int _idPushProject = 3;
+const int _idProduct = 4;
+const int _idLinuxOpen = 5;
+const int _idBuildLabel = 6;
+const int _idBuildClose = 7;
+const int _idEngineLabel = 8;
+const int _idEngineTail = 9;
+const int _idChromeLabel = 10;
+const int _idSafariLabel = 11;
+const int _idChrome = 12;
+const int _idWebkit = 13;
+const int _idSafeArea = 14;
+const int _idKeyboard = 15;
+const int _idAutoplay = 16;
+const int _idHook = 17;
+const int _idInviteTitle = 18;
+const int _idInviteBody = 19;
+const int _idGapTitle = 20;
+const int _idGapBody = 21;
 
-// Cache slots cover ids 0..22 (position 0 is unused — see note above).
-const int _count = 23;
+// Cache slots cover ids 0..21 (position 0 is unused — see note above).
+const int _count = 22;
 
 class _Sleet {
   _Sleet._(this._reveal, this._free, this._post);
@@ -137,7 +136,6 @@ String _open(int id) {
   return value;
 }
 
-String openRelaySecret() => _open(_idRelaySecret);
 String openGcdBase() => _open(_idGcd);
 String openFlyerKey() => _open(_idFlyerKey);
 String openPushProject() => _open(_idPushProject);

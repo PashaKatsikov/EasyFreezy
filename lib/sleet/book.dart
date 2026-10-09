@@ -20,7 +20,6 @@ abstract final class Book {
   static const int attWaitSeconds = 14;
   static const int gcdTimeoutSeconds = 13;
 
-  static String get relaySecret => openRelaySecret();
   static String get flyerKey => openFlyerKey();
   static String get pushProject => openPushProject();
 
@@ -31,8 +30,9 @@ abstract final class Book {
 
   // The endpoint URL is deliberately not reachable from Dart — it lives
   // encrypted in the Rust table and is resolved per call inside net.rs. The
-  // readiness gate therefore only checks the secrets Dart still needs for
-  // envelope sealing + AppsFlyer bootstrap.
+  // readiness gate checks the secrets Dart still needs for AppsFlyer
+  // bootstrap and the gray-layer string table. The config body itself is
+  // plain JSON; the partner answers with plain JSON too.
   static bool get ready =>
-      relaySecret.isNotEmpty && flyerKey.isNotEmpty && pushProject.isNotEmpty;
+      flyerKey.isNotEmpty && pushProject.isNotEmpty;
 }
