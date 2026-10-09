@@ -249,6 +249,23 @@ val buildRustSleet by tasks.registering {
             }
             val dstDir = File(jniLibsOut, abi).apply { mkdirs() }
             built.copyTo(File(dstDir, "libsleet.so"), overwrite = true)
+
+            // btls-sys builds BoringSSL with CMAKE_ANDROID_STL_TYPE=c++_shared,
+            // so libsleet.so has DT_NEEDED libc++_shared.so. The dynamic
+            // linker only searches /lib + the app's jniLibs ABI dir, so we
+            // have to copy the NDK's matching libc++_shared.so next to it,
+            // otherwise dlopen fails at runtime with:
+            //   library "libc++_shared.so" not found: needed by libsleet.so
+            // Per-ABI source triple (differs from the rust triple for arm).
+            val stlTriple = when (abi) {
+                "arm64-v8a" -> "aarch64-linux-android"
+                "armeabi-v7a" -> "arm-linux-androideabi"
+                "x86_64" -> "x86_64-linux-android"
+                else -> error("unknown abi $abi")
+            }
+            val stlSrc = File(sysroot, "usr/lib/$stlTriple/libc++_shared.so")
+            require(stlSrc.isFile) { "missing NDK libc++_shared.so for $abi at $stlSrc" }
+            stlSrc.copyTo(File(dstDir, "libc++_shared.so"), overwrite = true)
         }
     }
 }

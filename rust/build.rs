@@ -26,9 +26,11 @@ fn main() {
         println!("cargo:rustc-link-arg-cdylib=-lssl");
         println!("cargo:rustc-link-arg-cdylib=-lcrypto");
         println!("cargo:rustc-link-arg-cdylib=-Wl,--end-group");
-        // c++_static pulls libc++ from the NDK; btls-sys' BoringSSL build
-        // uses C++ for a few helpers.
-        println!("cargo:rustc-link-arg-cdylib=-lc++_static");
-        println!("cargo:rustc-link-arg-cdylib=-lc++abi");
+        // btls-sys hard-codes CMAKE_ANDROID_STL_TYPE=c++_shared, so the
+        // resulting libsleet.so has DT_NEEDED libc++_shared.so. The matching
+        // .so is shipped alongside libsleet.so from the gradle task
+        // (buildRustSleet) — do NOT try to statically link libc++ here, it
+        // would not change the archive's dynamic deps and only produces a
+        // misleading set of flags.
     }
 }
