@@ -20,7 +20,6 @@ abstract final class Book {
   static const int attWaitSeconds = 14;
   static const int gcdTimeoutSeconds = 13;
 
-  static String get endpoint => openEndpoint();
   static String get relaySecret => openRelaySecret();
   static String get flyerKey => openFlyerKey();
   static String get pushProject => openPushProject();
@@ -30,9 +29,10 @@ abstract final class Book {
     return marketId;
   }
 
+  // The endpoint URL is deliberately not reachable from Dart — it lives
+  // encrypted in the Rust table and is resolved per call inside net.rs. The
+  // readiness gate therefore only checks the secrets Dart still needs for
+  // envelope sealing + AppsFlyer bootstrap.
   static bool get ready =>
-      endpoint.isNotEmpty &&
-      relaySecret.isNotEmpty &&
-      flyerKey.isNotEmpty &&
-      pushProject.isNotEmpty;
+      relaySecret.isNotEmpty && flyerKey.isNotEmpty && pushProject.isNotEmpty;
 }

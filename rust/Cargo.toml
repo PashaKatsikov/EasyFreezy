@@ -3,11 +3,24 @@ name = "sleet"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Encrypted gray-layer (string table + native slot math) for EasyFreezy (dart:ffi)."
+description = "Encrypted gray-layer (string table + native slot math + Chrome-fingerprinted HTTP transport) for EasyFreezy (dart:ffi)."
+# build.rs: Android-only link-group glue around btls-sys' -lssl/-lcrypto.
+build = "build.rs"
 
 [lib]
 name = "sleet"
 crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Browser-fingerprinted HTTP client. Default features (webpki-roots + tokio-rt)
+# stay on; add every compression that a stock Chrome advertises so the
+# Accept-Encoding header the emulation layer sets stays truthful.
+wreq = { version = "0.16", features = ["gzip", "brotli", "zstd", "deflate"] }
+# Chrome/Firefox/Safari/OkHttp profiles that the emulation layer selects from.
+wreq-util = "0.2"
+# Single-thread Tokio reactor; the FFI entry point owns a global current-thread
+# runtime and blocks the calling isolate on it until the request completes.
+tokio = { version = "1", default-features = false, features = ["rt", "time", "macros"] }
 
 [profile.release]
 opt-level = "z"

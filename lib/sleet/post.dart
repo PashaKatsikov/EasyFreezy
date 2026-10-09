@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'book.dart';
-import 'ferry.dart';
 import 'pack.dart';
 import 'shelf.dart';
 import 'slip.dart';
@@ -12,26 +12,30 @@ class Post {
 
   final Shelf _shelf;
 
-  static const Map<String, String> _headers = <String, String>{
-    'Accept': 'application/json',
-    'Content-Type': 'application/json',
-  };
-
+  /// Posts the attribution envelope through the native Chrome-fingerprinted
+  /// transport (see rust/src/net.rs). The actual URL / method / headers all
+  /// live encrypted in the native table and are resolved per call inside
+  /// Rust, so there is nothing to pass or configure from here.
   Future<Reply> ask(Map<String, dynamic> body) async {
-    final endpoint = Book.endpoint;
-    if (endpoint.isEmpty) return Reply.rejected('no_endpoint');
-    final uri = Uri.tryParse(endpoint);
-    if (uri == null) return Reply.rejected('bad_endpoint');
     final envelope = Pack.seal(body, openRelaySecret());
     if (envelope.isEmpty) return Reply.rejected('no_secret');
     try {
-      final response = await ferry
-          .post(uri, headers: _headers, body: jsonEncode(envelope))
-          .timeout(Duration(seconds: Book.postTimeoutSeconds));
-      if (response.statusCode != 200) {
-        return Reply.rejected('status_${response.statusCode}');
+      final payload = utf8.encode(jsonEncode(envelope));
+      // The FFI call blocks for up to postTimeoutSeconds (TLS + round trip),
+      // so we hop to a short-lived worker isolate to keep the UI isolate
+      // responsive. Isolate.run copies the result back automatically.
+      final timeout = Book.postTimeoutSeconds;
+      final result = await Isolate.run<({int status, String body})>(
+        () => postConfigNative(payload, timeout),
+      );
+      final status = result.status;
+      if (status == 0) {
+        return Reply.rejected('transport:${result.body}');
       }
-      final reply = Reply.decodeBody(response.body);
+      if (status != 200) {
+        return Reply.rejected('status_$status');
+      }
+      final reply = Reply.decodeBody(result.body);
       if (reply.hasDestination) {
         await _shelf.rememberUrl(reply.url!, reply.expiresAt);
       }
